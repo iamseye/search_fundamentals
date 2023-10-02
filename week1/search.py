@@ -94,7 +94,10 @@ def query():
     print("query obj: {}".format(query_obj))
 
     #### Step 4.b.ii
-    response = None   # TODO: Replace me with an appropriate call to OpenSearch
+    response = opensearch.search(
+        body=query_obj,
+        index='bbuy_products'
+    )
     # Postprocess results here if you so desire
 
     #print(response)
@@ -111,11 +114,46 @@ def create_query(user_query, filters, sort="_score", sortDir="desc"):
     query_obj = {
         'size': 10,
         "query": {
-            "match_all": {} # Replace me with a query that both searches and filters
+            "bool": {
+                "must": [
+                    {
+                        "query_string": {
+                            "fields": [
+                                "name^100",
+                                "shortDescription^50",
+                                "longDescription^10",
+                            ],
+                            "query": user_query,
+                            "phrase_slop": 3,
+                        }
+                    }
+                ],
+                "filter": filters,
+            }
         },
         "aggs": {
-            #### Step 4.b.i: create the appropriate query and aggregations here
-
+           "departments": {
+                "terms": {
+                    "field": "department.keyword",
+                     "min_doc_count": 10
+                }
+            },
+            "regularPrice": {
+                "range": {
+                    "field": "regularPrice",
+                    "ranges": [
+                        {"key": "$", "from": 0, "to": 100},
+                        {"key": "$$", "from": 101, "to": 200},
+                        {"key": "$$$", "from": 201, "to": 300},
+                        {"key": "$$$$", "from": 301, "to": 400},
+                        {"key": "$$$$$", "from": 401, "to": 500},
+                        {"key": "$$$$$$", "from": 500}
+                    ]
+                }
+            },
+             "missing_images": {
+                "missing": {"field": "image"}
+            }
         }
     }
     return query_obj
