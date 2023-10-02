@@ -77,7 +77,6 @@ mappings =  [
             "longDescription/text()", "longDescription",
             "longDescriptionHtml/text()", "longDescriptionHtml",
             "features/*/text()", "features" # Note the match all here to get the subfields
-
         ]
 
 def get_opensearch():
@@ -85,7 +84,15 @@ def get_opensearch():
     port = 9200
     auth = ('admin', 'admin')
     #### Step 2.a: Create a connection to OpenSearch
-    client = None
+    client = OpenSearch(
+        hosts=[{'host': host, 'port': port}],
+        http_compress=True,  # enables gzip compression for request bodies
+        http_auth=auth,
+        use_ssl=True,
+        verify_certs=False,
+        ssl_assert_hostname=False,
+        ssl_show_warn=False,
+    )
     return client
 
 
@@ -103,12 +110,19 @@ def index_file(file, index_name):
             xpath_expr = mappings[idx]
             key = mappings[idx + 1]
             doc[key] = child.xpath(xpath_expr)
-        #print(doc)
+        
         if 'productId' not in doc or len(doc['productId']) == 0:
             continue
         #### Step 2.b: Create a valid OpenSearch Doc and bulk index 2000 docs at a time
-        the_doc = None
-        docs.append(the_doc)
+        docs.append({'_index': index_name, '_id': doc["sku"][0], '_source': doc})
+        docs_indexed += 1
+
+        if docs_indexed % 2000 == 0:
+            bulk(client, docs, request_timeout = 60)
+            docs = []
+
+    if len(doc) > 0:
+        bulk(client, docs, request_timeout = 60)
 
     return docs_indexed
 
@@ -116,9 +130,12 @@ def index_file(file, index_name):
 @click.option('--source_dir', '-s', help='XML files source directory')
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
 @click.option('--workers', '-w', default=8, help="The number of workers to use to process files")
-def main(source_dir: str, index_name: str, workers: int):
 
+def main(source_dir: str, index_name: str, workers: int):
+    print('run the file')
+    print('index name:' + index_name)
     files = glob.glob(source_dir + "/*.xml")
+    print(len(files))
     docs_indexed = 0
     start = perf_counter()
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
